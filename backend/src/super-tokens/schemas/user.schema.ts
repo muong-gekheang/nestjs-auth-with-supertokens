@@ -14,6 +14,9 @@ export class User {
 
   @Prop({ type: [String], default: [] })
   phoneNumbers: string[];
+
+  @Prop()
+  phonePassword: string;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
