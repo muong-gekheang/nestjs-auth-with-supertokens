@@ -4,6 +4,7 @@ import { Model } from 'mongoose';
 import { User, UserDocument, UserSchema } from './schemas/user.schema';
 import { SuperTokensService } from '../super-tokens/super-tokens.service';
 import { SuperTokensController } from './super-tokens.controller';
+import { TelegramGatewayModule } from 'src/common/telegram-gateway.service';
 
 
 @Module({})
@@ -13,6 +14,7 @@ export class SupertokensModule {
       module: SupertokensModule,
       imports: [
         MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
+        TelegramGatewayModule,
       ],
       controllers: [SuperTokensController], 
       providers: [SuperTokensService],

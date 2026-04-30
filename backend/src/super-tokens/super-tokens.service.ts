@@ -1,3 +1,4 @@
+import { TelegramGatewayService } from '../common/telegram-gateway.service';
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { User, UserDocument } from './schemas/user.schema';
@@ -16,56 +17,18 @@ import EmailVerification from 'supertokens-node/recipe/emailverification';
 import { sendEmail } from '../super-tokens/resend-service';
 @Injectable()
 export class SuperTokensService {
-
+  
   private pendingSignups: Record<string, {
     email: string;
     password: string;
     expiresAt: number;
   }> = {};
 
-  private requestIdStore: Record<string, {
-    requestId: string;
-    preAuthSessionId: string
-    userInputCode: string;
-  }> = {};
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
+    private readonly telegramGatewayService: TelegramGatewayService,
   ) {
     this.init();
-  }
-
-
-  private telegramRequest(endpoint: string, body: object): Promise<any> {
-    return new Promise((resolve, reject) => {
-      const data = JSON.stringify(body);
-
-      const options = {
-        hostname: 'gatewayapi.telegram.org',
-        path: `/${endpoint}`,
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.TELEGRAM_GATEWAY_TOKEN!}`,
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(data),
-        },
-      };
-
-      const req = https.request(options, (res) => {
-        let responseData = '';
-        res.on('data', (chunk) => responseData += chunk);
-        res.on('end', () => {
-          try {
-            resolve(JSON.parse(responseData));
-          } catch (e) {
-            reject(new Error('Failed to parse Telegram response'));
-          }
-        });
-      });
-
-      req.on('error', reject);
-      req.write(data);
-      req.end();
-    });
   }
 
   private async syncUser(userId: string, email?: string, phone?: string) {
@@ -120,19 +83,21 @@ export class SuperTokensService {
                 console.log('Token exists:', !!process.env.TELEGRAM_GATEWAY_TOKEN);
                 if (process.env.MOCK_OTP === 'true') {
                   console.log(`[MOCK OTP] Phone: ${input.phoneNumber}, OTP: ${input.userInputCode}`)
-                  this.requestIdStore[input.phoneNumber] = {
-                    requestId: 'mock-request-id',
-                    preAuthSessionId: input.preAuthSessionId,
-                    userInputCode: input.userInputCode ?? '',
-                  }
+                  // this.requestIdStore[input.phoneNumber] = {
+                  //   requestId: 'mock-request-id',
+                  //   preAuthSessionId: input.preAuthSessionId,
+                  //   userInputCode: input.userInputCode ?? '',
+                  // }
                   return
                 }
+
+               const data = await this.telegramGatewayService.getOTP(input.phoneNumber, input.preAuthSessionId, input.userInputCode ?? '');
             
-                const data = await this.telegramRequest('sendVerificationMessage', {
-                  phone_number: input.phoneNumber,
-                  ttl: 60,
-                  code_length: 4,
-                });
+                // const data = await this.telegramRequest('sendVerificationMessage', {
+                //   phone_number: input.phoneNumber,
+                //   ttl: 60,
+                //   code_length: 4,
+                // });
                 
                 console.log('Telegram send response:', data);
                 
@@ -140,11 +105,6 @@ export class SuperTokensService {
                   throw new Error(`Telegram Gateway error: ${data.error}`);
                 }
                 
-                this.requestIdStore[input.phoneNumber] = {
-                  requestId: data.result.request_id,
-                  preAuthSessionId: input.preAuthSessionId,
-                  userInputCode: input.userInputCode ?? '',
-                };
               }
             },
           },
@@ -157,13 +117,13 @@ export class SuperTokensService {
                 console.log('consumeCode preAuthSessionId:', (input as any).preAuthSessionId);
 
                 // get phone from preAuthSessionId lookup or directly
-                const phone = (input as any).phoneNumber
-                  ?? Object.keys(this.requestIdStore).find(
-                    p => this.requestIdStore[p].preAuthSessionId === (input as any).preAuthSessionId
-                  );
-          
-                const stored = phone ? this.requestIdStore[phone] : undefined;
-                const requestId = stored?.requestId;
+                const phone =
+                  (input as any).phoneNumber ??
+                  this.telegramGatewayService.findPhoneBySession(input.preAuthSessionId);
+                
+                if (!phone) {
+                  return { status: "RESTART_FLOW_ERROR" };
+                }
 
                 if (process.env.MOCK_OTP === 'true') {
                   // skip Telegram verification, just let SuperTokens handle it
@@ -175,42 +135,28 @@ export class SuperTokensService {
                       undefined,
                       response.user.phoneNumbers[0],
                     )
-                    if (phone) delete this.requestIdStore[phone]
+                    this.telegramGatewayService.clear(phone);
                   }
                 
                   return response
                 }
           
-                if (!requestId) {
-                  return { status: "RESTART_FLOW_ERROR" };
-                }
-          
                 console.log('phone found:', phone);
-                console.log('requestIdStore:', this.requestIdStore);
-                console.log('requestId:', phone ? this.requestIdStore[phone] : 'NOT FOUND');
-                
                 // 2. verify with Telegram Gateway instead of SuperTokens
-                const verifyData = await this.telegramRequest('checkVerificationStatus', {
-                  request_id: requestId,
-                  code: (input as any).userInputCode,
-                });
+                const verifyResult = await this.telegramGatewayService.verifyOTP(phone, (input as any).userInputCode);
           
-                console.log('Telegram verify response:', verifyData);
-                const status = verifyData?.result?.verification_status?.status;
-          
-                if (status !== 'code_valid') {
+                if (verifyResult.status !== "OK") {
                   return {
                     status: "INCORRECT_USER_INPUT_CODE_ERROR",
-                    maximumCodeInputAttempts: 5,
                     failedCodeInputAttemptCount: 1,
+                    maximumCodeInputAttempts: 5,
                   };
                 }
-          
+                const userInputCode = this.telegramGatewayService.getUserInputCode(phone) ?? '';
+
                 // 3. Telegram verified ✅ — let SuperTokens create the session
                 const response = await originalImplementation.consumeCode({
-                  ...input,
-                  userInputCode: stored.userInputCode, // 👈 swap with SuperTokens' own code
-                });
+                  ...input, userInputCode});
           
                 if (response.status === "OK") {
                   await this.syncUser(
@@ -220,7 +166,7 @@ export class SuperTokensService {
                   );
           
                   // cleanup
-                  if (phone) delete this.requestIdStore[phone];
+                  this.telegramGatewayService.clear(phone);
                 }
           
                 return response;
