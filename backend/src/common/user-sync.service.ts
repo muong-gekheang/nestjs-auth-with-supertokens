@@ -1,11 +1,13 @@
-import UserRoles  from 'supertokens-node/recipe/userroles';
 import { InjectModel } from "@nestjs/mongoose";
 import { Model } from "mongoose";
 import { User, UserDocument } from "src/super-tokens/schemas/user.schema";
+import { RoleService } from './role.service';
+import { Module } from "@nestjs/common";
 
-export class SyncUserService{
+export class UserSyncService{
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
+    private roleService: RoleService,
   ) {}
   
   async syncUser(userId: string, email?: string, phone?: string) {
@@ -20,7 +22,7 @@ export class SyncUserService{
         phoneNumbers: phone ? [phone] : [],
       });
 
-      const result = await UserRoles.addRoleToUser("public", userId, role);
+      const result = await this.roleService.assignRole(userId, role);
       console.log("Role assignment result:", result);
       return;
     }
@@ -31,3 +33,9 @@ export class SyncUserService{
     
   }
 }
+
+@Module({
+  providers: [UserSyncService],
+  exports: [UserSyncService],
+})
+export class UserSyncServiceModule{}

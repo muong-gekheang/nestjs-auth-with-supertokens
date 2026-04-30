@@ -15,6 +15,7 @@ import * as https from 'https';
 import * as crypto from 'crypto';
 import EmailVerification from 'supertokens-node/recipe/emailverification';
 import { sendEmail } from '../super-tokens/resend-service';
+import { UserSyncService } from 'src/common/user-sync.service';
 @Injectable()
 export class SuperTokensService {
   
@@ -27,36 +28,10 @@ export class SuperTokensService {
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     private readonly telegramGatewayService: TelegramGatewayService,
+    private readonly userSyncService: UserSyncService,
   ) {
     this.init();
   }
-
-  private async syncUser(userId: string, email?: string, phone?: string) {
-    let user = await this.userModel.findOne({ superTokensUserId: userId });
-    let role = "User";
-
-    if (email?.endsWith("@admin.com")) {
-      role = "Admin";
-    }
-
-    if (!user) {
-      await this.userModel.create({
-        superTokensUserId: userId,
-        emails: email ? [email] : [],
-        phoneNumbers: phone ? [phone] : [],
-      });
-
-      const result = await UserRoles.addRoleToUser("public", userId, role);
-      console.log("Role assignment result:", result);
-      return;
-    }
-
-    if (email && !user.emails.includes(email)) user.emails.push(email);
-    if (phone && !user.phoneNumbers.includes(phone)) user.phoneNumbers.push(phone);
-    
-    await user.save();
-  }
-
 
   init() {
     SuperTokens.init({
@@ -130,11 +105,11 @@ export class SuperTokensService {
                   const response = await originalImplementation.consumeCode(input)
                 
                   if (response.status === 'OK') {
-                    await this.syncUser(
+                    await this.userSyncService.syncUser(
                       response.user.id,
                       undefined,
-                      response.user.phoneNumbers[0],
-                    )
+                      response.user.phoneNumbers[0]
+                    );
                     this.telegramGatewayService.clear(phone);
                   }
                 
@@ -159,10 +134,10 @@ export class SuperTokensService {
                   ...input, userInputCode});
           
                 if (response.status === "OK") {
-                  await this.syncUser(
+                  await this.userSyncService.syncUser(
                     response.user.id,
                     undefined,
-                    response.user.phoneNumbers[0],
+                    response.user.phoneNumbers[0]
                   );
           
                   // cleanup
@@ -205,7 +180,10 @@ export class SuperTokensService {
                 const response = await originalImplementation.signUp(input);
     
                 if (response.status === "OK") {
-                  await this.syncUser(response.user.id, input.email, undefined);
+                  await this.userSyncService.syncUser(
+                    response.user.id,
+                    input.email,
+                    undefined);
 
                   await EmailVerification.sendEmailVerificationEmail(
                     "public",
@@ -220,7 +198,10 @@ export class SuperTokensService {
                 const response = await originalImplementation.signIn(input);
     
                 if (response.status === "OK") {
-                  await this.syncUser(response.user.id, input.email, undefined);
+                  await this.userSyncService.syncUser(
+                    response.user.id,
+                    input.email,
+                    undefined);
                 }
     
                 return response;
@@ -276,7 +257,10 @@ export class SuperTokensService {
     
                 if (response.status === "OK") {
                   const email = response.user.emails[0];
-                  await this.syncUser(response.user.id, email, undefined);
+                  await this.userSyncService.syncUser(
+                    response.user.id,
+                    input.email,
+                    undefined);
                 }
     
                 return response;
@@ -302,9 +286,11 @@ export class SuperTokensService {
       };
     }
   
-    // optional: sync DB
-    await this.syncUser(response.user.id, email);
-  
+    await this.userSyncService.syncUser(
+      response.user.id,
+      email,
+      undefined);
+    
     // optional: send verification email (SuperTokens way)
     await EmailVerification.sendEmailVerificationEmail(
       'public',
