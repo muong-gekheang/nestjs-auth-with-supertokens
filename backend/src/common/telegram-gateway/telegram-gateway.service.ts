@@ -9,11 +9,7 @@ dns.setDefaultResultOrder('ipv4first');
 export class TelegramGatewayService{
   // key: phone number - string
   // value: object
-  private requestIdStore: Record<string, {
-    requestId: string;
-    preAuthSessionId: string;
-    userInputCode: string; 
-  }> = {}; // temporary data 
+  private requestIdStore: Record<string, { requestId: string }> = {}; // phone → requestId
   
   private request(endpoint: string, body: object): Promise<any>{ // request 
     return new Promise((resolve, reject) => {
@@ -49,7 +45,7 @@ export class TelegramGatewayService{
   }
 
   //getOTP
-  async getOTP(phoneNumber: string, preAuthSessionId: string, userInputCode: string){
+  async getOTP(phoneNumber: string){
     const data = await this.request('sendVerificationMessage', {
       phone_number: phoneNumber,
       ttl: 60,
@@ -62,8 +58,6 @@ export class TelegramGatewayService{
 
     this.requestIdStore[phoneNumber] = {
       requestId: data.result.request_id,
-      preAuthSessionId,
-      userInputCode,
     };
     return data;
   }
@@ -101,20 +95,5 @@ export class TelegramGatewayService{
   clear(phoneNumber: string) {
     delete this.requestIdStore[phoneNumber];
   }
-
-  findPhoneBySession(preAuthSessionId: string) {
-    return Object.keys(this.requestIdStore).find(
-      p => this.requestIdStore[p].preAuthSessionId === preAuthSessionId
-    );
-  }
-
-  getUserInputCode(phoneNumber: string): string | undefined {
-    return this.requestIdStore[phoneNumber]?.userInputCode;
-  }
 }
 
-@Module({
-  providers: [TelegramGatewayService],
-  exports: [TelegramGatewayService],
-})
-export class TelegramGatewayModule {}

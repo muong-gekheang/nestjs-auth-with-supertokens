@@ -16,6 +16,7 @@ export class RolesGuard implements CanActivate{
     if (!requiredRoles) return true; // no roles required, allow through
 
     const req = context.switchToHttp().getRequest();
+    console.log("Cookies:", req.headers.cookie);
     const roleData = req.session.getAccessTokenPayload()['st-role'];
     const userRoles: string[] = roleData?.v ?? [];
 

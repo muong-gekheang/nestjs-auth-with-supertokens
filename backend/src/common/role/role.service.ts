@@ -23,9 +23,3 @@ export class RoleService{
     return await UserRoles.getRolesForUser("public", userId);
   }
 }
-
-@Module({
-  providers: [RoleService],
-  exports: [RoleService],
-})
-export class RoleServiceModule {}

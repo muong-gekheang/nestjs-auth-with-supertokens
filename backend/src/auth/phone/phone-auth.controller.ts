@@ -3,7 +3,7 @@ import { PhoneAuthService } from './phone-auth.service';
 import Session from 'supertokens-node/recipe/session';
 import EmailPassword from 'supertokens-node/recipe/emailpassword';
 import express from 'express';
-import { ApiBearerAuth } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody } from '@nestjs/swagger';
 import { VerifyOtpSignupDto } from './dto/verify-otp-sign-up.dto';
 import { SigninDto } from './dto/sign-in.dto';
 import { SendOtpDto } from './dto/send-otp.dto';
@@ -37,6 +37,53 @@ export class PhoneAuthController {
     } else {
       res.send(result)
     }
+  }
+
+  @Post('reset-password')
+  @ApiBody({
+    schema: {
+      example: {
+        oldPassword: 'currentpassword123',
+        newPassword: 'newpassword123',
+      },
+    },
+  })
+  async resetPassword(
+    @Body() body: { oldPassword: string; newPassword: string },
+    @Req() req: express.Request,
+    @Res({ passthrough: true }) res: express.Response,
+  ) {
+    const session = await Session.getSession(req, res);
+    const userId = session.getUserId();
+    return this.phoneAuthService.resetPassword(userId, body.oldPassword, body.newPassword);
+  }
+
+  @Post('forgot-password/send-otp')
+  @ApiBody({
+    schema: {
+      example: {
+        phone: '+85512345678',
+      },
+    },
+  })
+  async sendForgotPasswordOtp(@Body() body: { phone: string }) {
+    return this.phoneAuthService.sendForgotPasswordOtp(body.phone);
+  }
+
+  @Post('forgot-password')
+  @ApiBody({
+    schema: {
+      example: {
+        phone: '+85512345678',
+        otp: '0000',
+        newPassword: 'newpassword123',
+      },
+    },
+  })
+  async forgotPassword(
+    @Body() body: { phone: string; otp: string; newPassword: string },
+  ) {
+    return this.phoneAuthService.forgotPassword(body.phone, body.otp, body.newPassword);
   }
 
   
